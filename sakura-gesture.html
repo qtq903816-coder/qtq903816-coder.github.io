@@ -13,7 +13,7 @@
     overflow: hidden;
   }
   .scene { position: relative; width: 640px; max-width: 100vw; }
-  video { position: absolute; top: 0; left: 0; width: 100%; opacity: 0; pointer-events: none; }
+  video { position: absolute; opacity: 0; pointer-events: none; }
   #camCanvas { width: 100%; border-radius: 16px; display: block; }
   #fxCanvas  {
     position: absolute; top: 0; left: 0;
@@ -23,46 +23,37 @@
   .badge {
     position: absolute; bottom: 1rem; left: 50%;
     transform: translateX(-50%);
-    background: rgba(10,3,6,0.65);
-    border: 1px solid rgba(242,167,184,0.25);
+    background: rgba(10,3,6,0.6);
+    border: 1px solid rgba(242,167,184,0.2);
     backdrop-filter: blur(10px);
-    padding: 0.35rem 1.2rem;
-    border-radius: 999px;
-    font-size: 0.72rem; letter-spacing: 0.35em;
-    color: rgba(249,208,218,0.75); white-space: nowrap;
+    padding: 0.35rem 1.4rem; border-radius: 999px;
+    font-size: 0.72rem; letter-spacing: 0.4em;
+    color: rgba(249,208,218,0.7); white-space: nowrap;
+    transition: opacity 0.5s;
   }
   #startBtn {
-    margin-top: 1.5rem;
-    padding: 0.85rem 2.8rem;
+    margin-top: 1.5rem; padding: 0.85rem 2.8rem;
     background: transparent;
-    border: 1px solid rgba(242,167,184,0.5);
+    border: 1px solid rgba(242,167,184,0.4);
     color: #f9d0da; border-radius: 999px;
-    font-size: 0.85rem; letter-spacing: 0.3em;
-    cursor: pointer; transition: all 0.3s;
-    font-family: inherit;
+    font-size: 0.85rem; letter-spacing: 0.35em;
+    cursor: pointer; transition: all 0.3s; font-family: inherit;
   }
-  #startBtn:hover { background: rgba(242,167,184,0.1); }
-  #startBtn:disabled { opacity: 0.35; cursor: default; }
+  #startBtn:hover { background: rgba(242,167,184,0.08); border-color: rgba(242,167,184,0.7); }
+  #startBtn:disabled { opacity: 0.3; cursor: default; }
   .hint {
-    margin-top: 1rem; font-size: 0.68rem;
-    color: rgba(255,255,255,0.2); letter-spacing: 0.25em;
-    text-align: center; line-height: 2.2;
+    margin-top: 0.9rem; font-size: 0.67rem;
+    color: rgba(255,255,255,0.18); letter-spacing: 0.3em;
+    text-align: center; line-height: 2.4;
   }
   #overlay {
-    position: absolute; inset: 0;
-    background: rgba(13,5,8,0.9);
-    border-radius: 16px;
+    position: absolute; inset: 0; border-radius: 16px;
+    background: rgba(13,5,8,0.92);
     display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 0.6rem;
+    flex-direction: column; gap: 0.8rem;
   }
-  #overlay .ov-kanji {
-    font-size: 4rem; color: rgba(242,167,184,0.15);
-    letter-spacing: 0.2em; font-weight: 300;
-  }
-  #overlay .ov-text {
-    color: rgba(249,208,218,0.35);
-    font-size: 0.72rem; letter-spacing: 0.5em;
-  }
+  .ov-kanji { font-size: 5rem; color: rgba(242,167,184,0.12); font-weight: 300; }
+  .ov-text  { color: rgba(249,208,218,0.3); font-size: 0.7rem; letter-spacing: 0.6em; }
   #overlay.hidden { display: none; }
 </style>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300&display=swap" rel="stylesheet">
@@ -76,13 +67,13 @@
   <div class="badge" id="badge">一期一会</div>
   <div id="overlay">
     <div class="ov-kanji">桜</div>
-    <div class="ov-text">开启 · 感知 · 绽放</div>
+    <div class="ov-text">感知 · 流动 · 绽放</div>
   </div>
 </div>
 
-<button id="startBtn" onclick="start()">开启樱花感知</button>
+<button id="startBtn" onclick="start()">开启</button>
 <div class="hint">
-  张开手掌 · 花瓣随指而生<br>
+  张开手掌 · 拖尾随指流动<br>
   握拳 · 归于寂静
 </div>
 
@@ -97,254 +88,218 @@ const camCtx    = camCanvas.getContext('2d');
 const fxCtx     = fxCanvas.getContext('2d');
 const badge     = document.getElementById('badge');
 
-// ══════════════════════════════════════
-//  性能优化：跳帧控制
-//  MediaPipe 每帧都调用太贵，改成每隔一帧识别一次
-// ══════════════════════════════════════
-let frameCount = 0;
-let lastLandmarks = null; // 缓存上一次识别结果，跳帧时复用
+// ══════════════════════════════
+//  拖尾轨迹点队列
+//  每只手独立维护一条轨迹
+// ══════════════════════════════
+const TRAIL_LEN = 28;   // 保留多少个历史点
+const trails = {
+  left:  [],
+  right: []
+};
 
-// ══════════════════════════════════════
-//  花瓣粒子 — 极简风格
-//  每次只生 1~2 片，寿命长，飘落慢
-// ══════════════════════════════════════
-const particles = [];
+function addPoint(hand, x, y) {
+  const t = trails[hand];
+  t.push({ x, y, time: performance.now() });
+  if (t.length > TRAIL_LEN) t.shift();
+}
 
-// 只用两种颜色，纯白与淡粉，保持克制
-const PETAL_COLORS = [
-  [255, 255, 255],      // 纯白
-  [249, 208, 218],      // 樱粉
-  [242, 167, 184],      // 玫粉
-];
+function clearTrail(hand) {
+  trails[hand] = [];
+}
 
-class Petal {
-  constructor(x, y, mode) {
-    this.x = x;
-    this.y = y;
+// ══════════════════════════════
+//  绘制拖尾
+//  用贝塞尔曲线平滑连接轨迹点
+//  越旧的点越细越透明
+// ══════════════════════════════
+function drawTrail(ctx, points) {
+  if (points.length < 3) return;
+  const now = performance.now();
 
-    const isPoint = mode === 'point';
-    this.size  = isPoint ? (2 + Math.random() * 4) : (4 + Math.random() * 9);
-    this.life  = 1.0;
-    this.decay = 0.005 + Math.random() * 0.006; // 寿命很长，慢慢消逝
-    this.vx    = (Math.random() - 0.5) * 0.8;
-    this.vy    = -(0.3 + Math.random() * 0.7);  // 先轻轻上升
-    this.gravity = 0.018;                        // 重力很小，飘得慢
-    this.rot   = Math.random() * Math.PI * 2;
-    this.rotV  = (Math.random() - 0.5) * 0.025;
-    this.sway  = Math.random() * Math.PI * 2;
-    this.swayS = 0.015 + Math.random() * 0.015;
-    this.swayA = 0.25 + Math.random() * 0.5;    // 横向飘动幅度小
-    const c    = PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)];
-    this.r = c[0]; this.g = c[1]; this.b = c[2];
-  }
+  for (let i = 1; i < points.length; i++) {
+    const t   = i / points.length;          // 0→1，越大越新
+    const age = (now - points[i].time) / 600; // 时间老化 0→1
 
-  update() {
-    this.sway += this.swayS;
-    this.x    += this.vx + Math.sin(this.sway) * this.swayA;
-    this.vy   += this.gravity;
-    this.y    += this.vy;
-    this.rot  += this.rotV;
-    this.life -= this.decay;
-  }
+    const alpha = Math.pow(t, 1.4) * (1 - age * 0.3);
+    if (alpha <= 0) continue;
 
-  draw(ctx) {
-    if (this.life <= 0) return;
+    const width = t * 6;  // 尾部细，头部粗
+
+    // 颜色：旧点偏紫，新点偏粉白，形成渐变过渡
+    const r = Math.round(180 + 75  * t);
+    const g = Math.round(80  + 90  * t);
+    const b = Math.round(150 + 68  * t);
+
     ctx.save();
-    ctx.globalAlpha = Math.pow(this.life, 1.5) * 0.82; // 末尾快速淡出
-    ctx.translate(this.x, this.y);
-    ctx.rotate(this.rot);
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.strokeStyle = `rgb(${r},${g},${b})`;
+    ctx.lineWidth   = width;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
 
-    // 纯椭圆，无渐变，性能更好
-    ctx.beginPath();
-    ctx.ellipse(0, 0, this.size * 0.38, this.size, 0, 0, Math.PI * 2);
-    ctx.fillStyle = `rgb(${this.r},${this.g},${this.b})`;
-    ctx.fill();
+    // 用相邻三点做二次贝塞尔，使轨迹平滑
+    if (i >= 2) {
+      const prev2 = points[i - 2];
+      const prev1 = points[i - 1];
+      const curr  = points[i];
+      const cpx   = (prev1.x + curr.x) / 2;
+      const cpy   = (prev1.y + curr.y) / 2;
 
-    // 一根极细花脉
-    ctx.beginPath();
-    ctx.moveTo(0, -this.size * 0.75);
-    ctx.lineTo(0,  this.size * 0.75);
-    ctx.strokeStyle = `rgba(${this.r},${this.g},${this.b},0.25)`;
-    ctx.lineWidth = 0.4;
-    ctx.stroke();
-
+      ctx.beginPath();
+      ctx.moveTo((prev2.x + prev1.x) / 2, (prev2.y + prev1.y) / 2);
+      ctx.quadraticCurveTo(prev1.x, prev1.y, cpx, cpy);
+      ctx.stroke();
+    }
     ctx.restore();
   }
+
+  // 指尖光晕
+  const tip = points[points.length - 1];
+  const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.006);
+  const grd = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, 14);
+  grd.addColorStop(0,   `rgba(255,210,230,${0.55 * pulse})`);
+  grd.addColorStop(0.4, `rgba(242,167,184,${0.25 * pulse})`);
+  grd.addColorStop(1,   'rgba(242,167,184,0)');
+  ctx.beginPath();
+  ctx.arc(tip.x, tip.y, 14, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
 }
 
-function spawnPetals(x, y, mode) {
-  // 关键改动：每次只生成 1 片（食指模式）或 2 片（张开模式）
-  const count = mode === 'point' ? 1 : 2;
-  // 再加一层概率控制：不是每帧都生成，保持稀疏感
-  if (Math.random() > (mode === 'point' ? 0.7 : 0.55)) return;
-  for (let i = 0; i < count; i++) {
-    particles.push(new Petal(x, y, mode));
-  }
-}
-
-// ══════════════════════════════════════
-//  手势判断
-// ══════════════════════════════════════
-function fingerOpen(lm, tip, pip) {
-  return lm[tip].y < lm[pip].y;
-}
-
-function detectGesture(lm) {
-  const index  = fingerOpen(lm, 8,  6);
-  const middle = fingerOpen(lm, 12, 10);
-  const ring   = fingerOpen(lm, 16, 14);
-  const pinky  = fingerOpen(lm, 20, 18);
-  const open   = [index, middle, ring, pinky].filter(Boolean).length;
-
-  if (open >= 3) return 'open';
-  if (open === 0) return 'fist';
-  if (index && !middle && !ring && !pinky) return 'point';
-  return 'other';
-}
-
-// ══════════════════════════════════════
-//  骨架绘制 — 更淡，只作辅助
-// ══════════════════════════════════════
-function drawSkeleton(ctx, lm, gesture) {
-  if (gesture === 'fist') return; // 握拳时不画骨架
-
-  const lineAlpha = gesture === 'open' ? 0.25 : 0.35;
-  const dotAlpha  = gesture === 'open' ? 0.4  : 0.6;
-
+// ══════════════════════════════
+//  骨架（极简，仅作定位参考）
+// ══════════════════════════════
+function drawSkeleton(ctx, lm) {
   for (const [a, b] of HAND_CONNECTIONS) {
     const pa = lm[a], pb = lm[b];
     ctx.beginPath();
     ctx.moveTo(pa.x * camCanvas.width, pa.y * camCanvas.height);
     ctx.lineTo(pb.x * camCanvas.width, pb.y * camCanvas.height);
-    ctx.strokeStyle = `rgba(249,208,218,${lineAlpha})`;
+    ctx.strokeStyle = 'rgba(249,208,218,0.18)';
     ctx.lineWidth = 1;
     ctx.stroke();
   }
-
-  // 只画指尖，不画所有关节
-  [4, 8, 12, 16, 20].forEach(i => {
-    const pt = lm[i];
-    ctx.beginPath();
-    ctx.arc(pt.x * camCanvas.width, pt.y * camCanvas.height, 3, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255,255,255,${dotAlpha})`;
-    ctx.fill();
-  });
 }
 
-// ══════════════════════════════════════
-//  粒子层独立渲染循环
-// ══════════════════════════════════════
-function renderFx() {
-  // 拖尾：透明度更高，残影更短，更干净
-  fxCtx.fillStyle = 'rgba(13,5,8,0.28)';
-  fxCtx.fillRect(0, 0, fxCanvas.width, fxCanvas.height);
+// ══════════════════════════════
+//  手势判断
+// ══════════════════════════════
+function fingerOpen(lm, tip, pip) { return lm[tip].y < lm[pip].y; }
 
-  for (let i = particles.length - 1; i >= 0; i--) {
-    particles[i].update();
-    particles[i].draw(fxCtx);
-    if (particles[i].life <= 0) particles.splice(i, 1);
-  }
+function detectGesture(lm) {
+  const i = fingerOpen(lm, 8,  6);
+  const m = fingerOpen(lm, 12, 10);
+  const r = fingerOpen(lm, 16, 14);
+  const p = fingerOpen(lm, 20, 18);
+  const n = [i, m, r, p].filter(Boolean).length;
+  if (n >= 3) return 'open';
+  if (n === 0) return 'fist';
+  return 'other';
+}
+
+// ══════════════════════════════
+//  fxCanvas 渲染循环（独立 rAF）
+//  只负责拖尾，不做识别，永远流畅
+// ══════════════════════════════
+function renderFx() {
+  // 快速清除（不用半透明叠加，直接 clear，拖尾由轨迹点自己控制长度）
+  fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+
+  drawTrail(fxCtx, trails.right);
+  drawTrail(fxCtx, trails.left);
 
   requestAnimationFrame(renderFx);
 }
 
-// ══════════════════════════════════════
+// ══════════════════════════════
 //  MediaPipe 回调
-// ══════════════════════════════════════
-let tracking = false;
+// ══════════════════════════════
+let frameCount = 0;
+let cachedLM   = [];
+let cachedHand = [];
 
 function onResults(results) {
   frameCount++;
-
   const W = results.image.width, H = results.image.height;
   camCanvas.width = fxCanvas.width  = W;
   camCanvas.height= fxCanvas.height = H;
 
-  // 画摄像头（镜像）
+  // 摄像头画面（镜像）
   camCtx.save();
   camCtx.scale(-1, 1);
   camCtx.drawImage(results.image, -W, 0);
   camCtx.restore();
 
-  // 稍微压暗，让花瓣更突出
-  camCtx.fillStyle = 'rgba(13,5,8,0.3)';
+  // 轻压暗
+  camCtx.fillStyle = 'rgba(13,5,8,0.22)';
   camCtx.fillRect(0, 0, W, H);
 
-  // 跳帧：每 2 帧才做完整识别，奇数帧复用上次结果
+  // 跳帧：每 2 帧做一次完整识别
   const doDetect = (frameCount % 2 === 0);
-  const landmarks = doDetect
-    ? (results.multiHandLandmarks || [])
-    : (lastLandmarks || []);
+  if (doDetect) {
+    cachedLM   = results.multiHandLandmarks  || [];
+    cachedHand = results.multiHandedness     || [];
+  }
 
-  if (doDetect) lastLandmarks = results.multiHandLandmarks || [];
-
-  if (!landmarks.length) {
+  if (!cachedLM.length) {
+    clearTrail('left'); clearTrail('right');
     badge.textContent = '虚空以待';
     return;
   }
 
-  landmarks.forEach(raw => {
-    const lm = raw.map(pt => ({ ...pt, x: 1 - pt.x }));
+  cachedLM.forEach((raw, idx) => {
+    const lm      = raw.map(pt => ({ ...pt, x: 1 - pt.x }));
     const gesture = detectGesture(lm);
 
+    // MediaPipe 返回的 handedness 在镜像后左右互换
+    const label   = cachedHand[idx]?.label === 'Left' ? 'right' : 'left';
+
     if (gesture === 'open') {
-      tracking = true;
       badge.textContent = '花开';
+      drawSkeleton(camCtx, lm);
+      const tip = lm[8];
+      addPoint(label, tip.x * W, tip.y * H);
     } else if (gesture === 'fist') {
-      tracking = false;
       badge.textContent = '归寂';
-    } else if (gesture === 'point') {
-      tracking = true;
-      badge.textContent = '一点樱';
+      clearTrail(label);
     } else {
       badge.textContent = '感知中';
-    }
-
-    drawSkeleton(camCtx, lm, gesture);
-
-    if (tracking) {
-      if (gesture === 'open') {
-        // 只在食指尖生成，不铺满三根手指
-        const t = lm[8];
-        spawnPetals(t.x * W, t.y * H, 'open');
-      } else if (gesture === 'point') {
-        const t = lm[8];
-        spawnPetals(t.x * W, t.y * H, 'point');
-      }
+      // 其他手势也保持拖尾（过渡自然）
+      const tip = lm[8];
+      addPoint(label, tip.x * W, tip.y * H);
     }
   });
 }
 
-// ══════════════════════════════════════
+// ══════════════════════════════
 //  启动
-// ══════════════════════════════════════
+// ══════════════════════════════
 async function start() {
   const btn = document.getElementById('startBtn');
-  btn.disabled = true;
-  btn.textContent = '感知觉醒中 ···';
+  btn.disabled = true; btn.textContent = '唤醒中 ···';
 
   const hands = new Hands({
     locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
   });
-
   hands.setOptions({
-    maxNumHands: 1,          // 改成只识别 1 只手，省一半算力
-    modelComplexity: 0,      // 改成 0（轻量模型），帧率提升明显
+    maxNumHands: 2,
+    modelComplexity: 0,          // 轻量模型
     minDetectionConfidence: 0.65,
-    minTrackingConfidence:  0.5,
+    minTrackingConfidence:  0.55,
   });
-
   hands.onResults(onResults);
 
   const camera = new Camera(video, {
     onFrame: async () => { await hands.send({ image: video }); },
     width: 640, height: 480,
   });
-
   await camera.start();
+
   document.getElementById('overlay').classList.add('hidden');
   btn.textContent = '桜 · 运行中';
-  renderFx();
+
+  renderFx(); // 启动独立渲染循环
 }
 </script>
 </body>
