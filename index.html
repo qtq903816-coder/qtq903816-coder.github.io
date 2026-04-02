@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>桜 · Sakura</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600&family=Playfair+Display:ital,wght@0,400;1,300&family=Noto+Sans+JP:wght@100;300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --blush: #f2a7b8; --petal: #f9d0da; --deep: #7a2a3a;
+    --ink: #2c1a1e; --mist: #fdf0f3; --gold: #c49a6c; --bark: #6b3a2a;
+  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--mist); color: var(--ink); font-family: 'Noto Serif SC', serif; overflow-x: hidden; }
+  #sakura-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  .hero { position: relative; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; background: linear-gradient(160deg, #fff5f7 0%, #fce8ed 40%, #f5d0da 100%); z-index: 1; }
+  .hero::before { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 200px; background: linear-gradient(to top, var(--mist), transparent); z-index: 2; }
+  .kanji-bg { position: absolute; font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: clamp(200px, 35vw, 480px); color: rgba(242,167,184,0.18); user-select: none; z-index: 1; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+  .hero-content { position: relative; z-index: 3; text-align: center; padding: 0 2rem; }
+  .subtitle-jp { font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: 0.85rem; letter-spacing: 0.5em; color: var(--blush); margin-bottom: 1.5rem; animation: fadeUp 1s ease both; }
+  .hero-title { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 300; font-size: clamp(3.5rem, 10vw, 8rem); color: var(--deep); line-height: 1.05; animation: fadeUp 1s 0.2s ease both; }
+  .hero-title span { display: block; font-family: 'Noto Serif SC', serif; font-weight: 300; font-size: clamp(1.2rem, 3vw, 2rem); color: var(--bark); font-style: normal; letter-spacing: 0.3em; margin-top: 0.5rem; }
+  .hero-desc { margin-top: 2.5rem; font-size: clamp(0.9rem, 1.5vw, 1.05rem); color: var(--bark); font-weight: 300; max-width: 500px; margin-left: auto; margin-right: auto; line-height: 2; animation: fadeUp 1s 0.4s ease both; }
+  .scroll-hint { position: absolute; bottom: 3rem; left: 50%; transform: translateX(-50%); z-index: 3; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; animation: fadeUp 1s 0.8s ease both; }
+  .scroll-hint span { font-family: 'Noto Sans JP', sans-serif; font-size: 0.6rem; letter-spacing: 0.4em; color: var(--blush); }
+  .scroll-line { width: 1px; height: 50px; background: linear-gradient(to bottom, var(--blush), transparent); animation: scrollPulse 2s ease-in-out infinite; }
+  section { position: relative; z-index: 1; }
+  .intro { background: var(--mist); padding: 6rem 2rem; }
+  .intro-inner { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 1fr 2fr; gap: 5rem; align-items: center; }
+  .intro-label { writing-mode: vertical-rl; font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: 0.75rem; letter-spacing: 0.5em; color: var(--blush); display: flex; align-items: center; gap: 1.5rem; }
+  .intro-label::after { content: ''; display: block; width: 1px; height: 80px; background: var(--blush); }
+  .intro-text h2 { font-size: clamp(1.8rem, 3vw, 2.5rem); font-weight: 300; color: var(--deep); margin-bottom: 1.5rem; line-height: 1.4; }
+  .intro-text p { font-size: 1rem; line-height: 2.1; color: #5a3540; font-weight: 300; margin-bottom: 1rem; }
+  .facts { background: linear-gradient(135deg, var(--deep) 0%, #4a1520 100%); padding: 6rem 2rem; color: white; }
+  .facts-title { text-align: center; font-family: 'Playfair Display', serif; font-style: italic; font-size: clamp(2rem, 4vw, 3rem); font-weight: 300; color: var(--petal); margin-bottom: 4rem; }
+  .facts-grid { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2px; }
+  .fact-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(242,167,184,0.15); padding: 2.5rem 2rem; transition: background 0.3s, transform 0.3s; }
+  .fact-card:hover { background: rgba(242,167,184,0.08); transform: translateY(-4px); }
+  .fact-num { font-family: 'Playfair Display', serif; font-size: 3rem; color: var(--blush); line-height: 1; margin-bottom: 0.5rem; }
+  .fact-unit { font-size: 0.8rem; font-family: 'Noto Sans JP', sans-serif; font-weight: 100; letter-spacing: 0.2em; }
+  .fact-desc { margin-top: 0.8rem; font-size: 0.85rem; line-height: 1.8; color: rgba(255,255,255,0.65); font-weight: 300; }
+  .varieties { background: #fff9fa; padding: 6rem 2rem; }
+  .section-header { text-align: center; margin-bottom: 4rem; }
+  .section-header .en { font-family: 'Playfair Display', serif; font-style: italic; font-size: clamp(2rem, 4vw, 3.2rem); color: var(--deep); font-weight: 300; }
+  .section-header .jp { font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: 0.75rem; letter-spacing: 0.6em; color: var(--blush); margin-top: 0.5rem; }
+  .variety-list { max-width: 900px; margin: 0 auto; }
+  .variety-item { display: grid; grid-template-columns: 80px 1fr; gap: 2rem; padding: 2rem 0; border-bottom: 1px solid rgba(242,167,184,0.3); align-items: start; transition: padding-left 0.3s; }
+  .variety-item:hover { padding-left: 1rem; }
+  .variety-num { font-family: 'Playfair Display', serif; font-size: 2.5rem; color: var(--petal); font-weight: 400; line-height: 1; }
+  .variety-name { font-size: 1.2rem; font-weight: 600; color: var(--deep); margin-bottom: 0.3rem; }
+  .variety-name-jp { font-family: 'Noto Sans JP', sans-serif; font-size: 0.8rem; font-weight: 100; color: var(--blush); letter-spacing: 0.2em; margin-bottom: 0.7rem; }
+  .variety-desc { font-size: 0.9rem; line-height: 1.9; color: #5a3540; font-weight: 300; }
+  .haiku-section { background: linear-gradient(135deg, #fce4ec, #f8bbd9, #f3e5f5); padding: 7rem 2rem; text-align: center; position: relative; overflow: hidden; }
+  .haiku-section::before { content: '桜'; position: absolute; font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: 40vw; color: rgba(255,255,255,0.25); top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+  .haiku-label { font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: 0.7rem; letter-spacing: 0.6em; color: var(--deep); margin-bottom: 2rem; }
+  .haiku-text { font-family: 'Playfair Display', serif; font-style: italic; font-size: clamp(1.4rem, 3.5vw, 2.5rem); color: var(--deep); line-height: 2; font-weight: 300; position: relative; z-index: 1; }
+  .haiku-author { margin-top: 2rem; font-size: 0.8rem; font-family: 'Noto Sans JP', sans-serif; font-weight: 300; color: var(--bark); letter-spacing: 0.2em; position: relative; z-index: 1; }
+  footer { background: var(--ink); color: rgba(255,255,255,0.4); text-align: center; padding: 3rem 2rem; font-family: 'Noto Sans JP', sans-serif; font-weight: 100; font-size: 0.75rem; letter-spacing: 0.3em; }
+  footer span { color: var(--blush); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes scrollPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .reveal { opacity: 0; transform: translateY(40px); transition: opacity 0.8s ease, transform 0.8s ease; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+<canvas id="sakura-canvas"></canvas>
+<section class="hero">
+  <div class="kanji-bg">桜</div>
+  <div class="hero-content">
+    <div class="subtitle-jp">Cherry Blossom · 一期一会</div>
+    <h1 class="hero-title">Sakura<span>日本樱花</span></h1>
+    <p class="hero-desc">花开一瞬，芳华永驻。<br>樱花以其短暂而绚烂的生命，<br>诠释着日本物哀之美。</p>
+  </div>
+  <div class="scroll-hint"><span>SCROLL</span><div class="scroll-line"></div></div>
+</section>
+<section class="intro">
+  <div class="intro-inner reveal">
+    <div class="intro-label">ABOUT SAKURA ···</div>
+    <div class="intro-text">
+      <h2>瞬间的美丽，<br>永恒的精神</h2>
+      <p>樱花（さくら / Sakura）是日本的国花，学名 <em>Prunus serrulata</em>。每年春天，樱花盛开的景象将整个日本染成粉白，吸引数百万人涌向公园、街道与山间，共赴这场年度盛宴。</p>
+      <p>日语中有一个词叫「物哀」（もののあわれ），意为对万物无常之美的感悟。樱花仅开放约一至两周，随后随风飘落，恰如人生的短暂与珍贵——这正是日本人对樱花如此痴迷的精神根源。</p>
+    </div>
+  </div>
+</section>
+<section class="facts">
+  <div class="facts-title reveal">Numbers &amp; Facts</div>
+  <div class="facts-grid">
+    <div class="fact-card reveal"><div class="fact-num">600<span class="fact-unit">+</span></div><div class="fact-desc">全球已记录的樱花品种超过 600 种，日本本土约有 200 余种。</div></div>
+    <div class="fact-card reveal"><div class="fact-num">7<span class="fact-unit">～14</span></div><div class="fact-desc">樱花盛开期仅 7 至 14 天，花期短暂，愈显珍贵。</div></div>
+    <div class="fact-card reveal"><div class="fact-num">1,200<span class="fact-unit">年</span></div><div class="fact-desc">花见（Hanami）赏花文化可追溯至奈良时代，已有逾千年历史。</div></div>
+    <div class="fact-card reveal"><div class="fact-num">5℃</div><div class="fact-desc">气温稳定高于 5°C 后，樱花开始绽放。气候变化正使花期逐年提前。</div></div>
+  </div>
+</section>
+<section class="varieties">
+  <div class="section-header reveal"><div class="en">Varieties</div><div class="jp">主要品种</div></div>
+  <div class="variety-list">
+    <div class="variety-item reveal"><div class="variety-num">01</div><div><div class="variety-name">染井吉野</div><div class="variety-name-jp">SOMEI YOSHINO</div><div class="variety-desc">日本最具代表性的品种，约占全国樱花树的 80%。花朵呈淡粉白色，先花后叶，盛开时如云如雪，大片齐放，极为壮观。</div></div></div>
+    <div class="variety-item reveal"><div class="variety-num">02</div><div><div class="variety-name">八重樱</div><div class="variety-name-jp">YAEZAKURA</div><div class="variety-desc">重瓣樱花，每朵有 20 至 50 片花瓣，花形饱满华丽，颜色较深，花期比染井吉野略晚，盛开时极为富贵。</div></div></div>
+    <div class="variety-item reveal"><div class="variety-num">03</div><div><div class="variety-name">枝垂樱</div><div class="variety-name-jp">SHIDAREZAKURA</div><div class="variety-desc">垂枝樱花，枝条自然下垂，粉色花瓣如瀑布倾泻，姿态柔美，常植于寺院与庭园，极具古典韵味。</div></div></div>
+    <div class="variety-item reveal"><div class="variety-num">04</div><div><div class="variety-name">河津樱</div><div class="variety-name-jp">KAWAZU ZAKURA</div><div class="variety-desc">最早开放的樱花品种之一，每年 2 月于伊豆河津町盛开，花色深粉，花期长达一个月，是春天的先行使者。</div></div></div>
+    <div class="variety-item reveal"><div class="variety-num">05</div><div><div class="variety-name">御室樱</div><div class="variety-name-jp">OMURO ZAKURA</div><div class="variety-desc">京都仁和寺的名产，树形矮小，花朵繁密，因"接地气"的造型与人格外亲近，是日本三大名樱之一。</div></div></div>
+  </div>
+</section>
+<section class="haiku-section">
+  <div class="haiku-label">HAIKU · 俳句</div>
+  <div class="haiku-text reveal">さまざまの<br>事おもひ出す<br>桜かな</div>
+  <div class="haiku-author reveal">— 松尾芭蕉 Matsuo Bashō<br><br><em style="font-size:0.85rem;color:#7a4a55;font-family:'Noto Serif SC',serif;font-style:normal;">"种种往事涌上心头，皆因这一树樱花。"</em></div>
+</section>
+<footer><span>桜</span> · Sakura · 樱花 · さくら<br><br>一期一会 · 花开终须落</footer>
+<script>
+const canvas = document.getElementById('sakura-canvas');
+const ctx = canvas.getContext('2d');
+let petals = [];
+const PETAL_COUNT = 45;
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+function drawPetal(x, y, size, rotation, alpha) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rotation); ctx.globalAlpha = alpha;
+  const g = ctx.createRadialGradient(0,0,0,0,0,size);
+  g.addColorStop(0,'#fde8ef'); g.addColorStop(0.6,'#f9c0d0'); g.addColorStop(1,'rgba(240,140,170,0)');
+  ctx.beginPath(); ctx.ellipse(0,0,size*0.55,size,0,0,Math.PI*2); ctx.fillStyle=g; ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0,-size*0.85); ctx.lineTo(0,size*0.85);
+  ctx.strokeStyle='rgba(220,130,160,0.3)'; ctx.lineWidth=0.5; ctx.stroke(); ctx.restore();
+}
+function createPetal() {
+  return { x:Math.random()*canvas.width, y:-20-Math.random()*200, size:6+Math.random()*10,
+    speedX:(Math.random()-0.5)*1.5, speedY:0.6+Math.random()*1.2,
+    rotation:Math.random()*Math.PI*2, rotationSpeed:(Math.random()-0.5)*0.04,
+    alpha:0.5+Math.random()*0.5, sway:Math.random()*Math.PI*2,
+    swaySpeed:0.01+Math.random()*0.02, swayAmp:0.5+Math.random()*1.5 };
+}
+for(let i=0;i<PETAL_COUNT;i++){const p=createPetal();p.y=Math.random()*window.innerHeight;petals.push(p);}
+function animate() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(let p of petals){p.sway+=p.swaySpeed;p.x+=p.speedX+Math.sin(p.sway)*p.swayAmp;p.y+=p.speedY;p.rotation+=p.rotationSpeed;drawPetal(p.x,p.y,p.size,p.rotation,p.alpha);if(p.y>canvas.height+30)Object.assign(p,createPetal());}
+  requestAnimationFrame(animate);
+}
+animate();
+const reveals=document.querySelectorAll('.reveal');
+const observer=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible');}),{threshold:0.1});
+reveals.forEach(el=>observer.observe(el));
+</script>
+</body>
+</html>
