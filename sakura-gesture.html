@@ -2,30 +2,203 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>摄像头测试</title>
+<title>手势识别测试</title>
 <style>
-  body { background: #1a0a0e; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; font-family: sans-serif; color: white; }
-  video { border-radius: 12px; width: 640px; max-width: 100vw; }
-  button { margin-top: 1.5rem; padding: 0.8rem 2rem; background: #f2a7b8; color: #2c1a1e; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; }
-  #status { margin-top: 1rem; color: #f2a7b8; font-size: 0.9rem; letter-spacing: 0.2em; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a0a0e; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: sans-serif; color: white; }
+  
+  .container { position: relative; width: 640px; max-width: 100vw; }
+  
+  /* 视频隐藏在后面，canvas 叠在上面 */
+  video { position: absolute; top: 0; left: 0; width: 100%; opacity: 0; }
+  canvas { width: 100%; border-radius: 12px; display: block; }
+
+  .status-bar { margin-top: 1.5rem; display: flex; gap: 2rem; }
+  .stat { text-align: center; }
+  .stat-label { font-size: 0.7rem; letter-spacing: 0.3em; color: rgba(255,255,255,0.4); }
+  .stat-value { font-size: 1.4rem; color: #f2a7b8; margin-top: 4px; }
+
+  #gesture-display {
+    margin-top: 1.5rem; font-size: 1.1rem; letter-spacing: 0.3em;
+    color: #f9d0da; min-height: 2rem; text-align: center;
+  }
+
+  button {
+    margin-top: 1.5rem; padding: 0.8rem 2.5rem;
+    background: #f2a7b8; color: #2c1a1e;
+    border: none; border-radius: 8px; font-size: 1rem; cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  button:hover { opacity: 0.85; }
+
+  .tip { margin-top: 1rem; font-size: 0.75rem; color: rgba(255,255,255,0.3); letter-spacing: 0.2em; }
 </style>
 </head>
 <body>
+
+<div class="container">
   <video id="video" autoplay playsinline></video>
-  <button onclick="startCamera()">开启摄像头</button>
-  <div id="status">点击按钮开启摄像头</div>
+  <canvas id="canvas"></canvas>
+</div>
+
+<div class="status-bar">
+  <div class="stat">
+    <div class="stat-label">识别状态</div>
+    <div class="stat-value" id="stat-status">未开始</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">检测到的手</div>
+    <div class="stat-value" id="stat-hands">0</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">帧率</div>
+    <div class="stat-value" id="stat-fps">0</div>
+  </div>
+</div>
+
+<div id="gesture-display">请先开启摄像头</div>
+
+<button id="btn" onclick="start()">开启摄像头 + 手势识别</button>
+<div class="tip">张开手掌 · 握成拳头 · 伸出食指</div>
+
+<!-- 引入 MediaPipe 库 -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <script>
-async function startCamera() {
-  const status = document.getElementById('status');
-  try {
-    // 向浏览器请求摄像头权限
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    document.getElementById('video').srcObject = stream;
-    status.textContent = '✓ 摄像头已开启';
-  } catch (err) {
-    status.textContent = '✗ 无法开启摄像头：' + err.message;
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// ── 手势判断函数 ──────────────────────────────
+// MediaPipe 给每只手返回 21 个关键点（landmarks）
+// 编号如下：
+//   0=手腕  4=拇指尖  8=食指尖  12=中指尖  16=无名指尖  20=小指尖
+//   每根手指: 掌骨底(1/5/9/13/17) → 近节(2/6/10/14/18) → 中节(3/7/11/15/19) → 指尖(4/8/12/16/20)
+
+function isFingerOpen(landmarks, tipIdx, pipIdx) {
+  // 指尖 y 坐标小于 PIP 关节 y 坐标 → 手指伸直（屏幕坐标 y 向下）
+  return landmarks[tipIdx].y < landmarks[pipIdx].y;
+}
+
+function detectGesture(landmarks) {
+  const thumbOpen  = landmarks[4].x < landmarks[3].x; // 拇指：看 x 方向
+  const indexOpen  = isFingerOpen(landmarks, 8,  6);
+  const middleOpen = isFingerOpen(landmarks, 12, 10);
+  const ringOpen   = isFingerOpen(landmarks, 16, 14);
+  const pinkyOpen  = isFingerOpen(landmarks, 20, 18);
+
+  const openCount = [indexOpen, middleOpen, ringOpen, pinkyOpen].filter(Boolean).length;
+
+  if (openCount === 4) return { name: '✋ 张开手掌', type: 'open' };
+  if (openCount === 0) return { name: '✊ 握拳', type: 'fist' };
+  if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) return { name: '☝️ 食指', type: 'point' };
+  if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) return { name: '✌️ 剪刀手', type: 'peace' };
+  return { name: '🤙 其他手势', type: 'other' };
+}
+
+// ── 绘制骨架 ──────────────────────────────────
+function drawSkeleton(landmarks) {
+  // 连接线：手掌 + 五根手指
+  const connections = window.HAND_CONNECTIONS; // MediaPipe 内置连接关系
+
+  // 画连接线
+  ctx.strokeStyle = 'rgba(242, 167, 184, 0.7)';
+  ctx.lineWidth = 2;
+  for (const [start, end] of connections) {
+    const a = landmarks[start], b = landmarks[end];
+    ctx.beginPath();
+    ctx.moveTo(a.x * canvas.width, a.y * canvas.height);
+    ctx.lineTo(b.x * canvas.width, b.y * canvas.height);
+    ctx.stroke();
   }
+
+  // 画关键点
+  landmarks.forEach((pt, i) => {
+    const x = pt.x * canvas.width, y = pt.y * canvas.height;
+    ctx.beginPath();
+    ctx.arc(x, y, i === 0 ? 6 : 4, 0, Math.PI * 2);
+    // 指尖用白色，其他用粉色
+    ctx.fillStyle = [4, 8, 12, 16, 20].includes(i) ? 'white' : '#f2a7b8';
+    ctx.fill();
+  });
+}
+
+// ── 帧率计算 ──────────────────────────────────
+let lastTime = 0, fps = 0;
+
+// ── MediaPipe 回调：每帧都会调用 ───────────────
+function onResults(results) {
+  // 计算帧率
+  const now = performance.now();
+  fps = Math.round(1000 / (now - lastTime));
+  lastTime = now;
+  document.getElementById('stat-fps').textContent = fps;
+
+  // 设置 canvas 尺寸
+  canvas.width = results.image.width;
+  canvas.height = results.image.height;
+
+  // 1. 先画摄像头画面（镜像翻转，更自然）
+  ctx.save();
+  ctx.scale(-1, 1);
+  ctx.drawImage(results.image, -canvas.width, 0);
+  ctx.restore();
+
+  const handCount = results.multiHandLandmarks ? results.multiHandLandmarks.length : 0;
+  document.getElementById('stat-hands').textContent = handCount;
+
+  if (handCount > 0) {
+    document.getElementById('stat-status').textContent = '识别中 ✓';
+
+    // 处理每只手
+    results.multiHandLandmarks.forEach(landmarks => {
+      // 镜像翻转关键点坐标（配合画面翻转）
+      const mirrored = landmarks.map(pt => ({ ...pt, x: 1 - pt.x }));
+
+      drawSkeleton(mirrored);
+
+      const gesture = detectGesture(mirrored);
+      document.getElementById('gesture-display').textContent = gesture.name;
+    });
+  } else {
+    document.getElementById('gesture-display').textContent = '未检测到手部';
+  }
+}
+
+// ── 启动函数 ──────────────────────────────────
+async function start() {
+  document.getElementById('btn').disabled = true;
+  document.getElementById('btn').textContent = '加载中...';
+  document.getElementById('stat-status').textContent = '加载中';
+
+  // 初始化 MediaPipe Hands
+  const hands = new Hands({
+    locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+
+  hands.setOptions({
+    maxNumHands: 2,        // 最多识别几只手
+    modelComplexity: 1,    // 模型精度 0=快 1=准
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.5,
+  });
+
+  hands.onResults(onResults);
+
+  // 开摄像头并逐帧送入 MediaPipe
+  const camera = new Camera(video, {
+    onFrame: async () => {
+      await hands.send({ image: video });
+    },
+    width: 640,
+    height: 480,
+  });
+
+  await camera.start();
+  document.getElementById('btn').textContent = '运行中';
+  document.getElementById('stat-status').textContent = '等待手部';
 }
 </script>
 </body>
